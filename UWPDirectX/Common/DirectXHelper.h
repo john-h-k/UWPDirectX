@@ -9,7 +9,7 @@ namespace DX
 		if (FAILED(hr))
 		{
 			// Set a breakpoint on this line to catch Win32 API errors.
-			throw Platform::Exception::CreateException(hr);
+			throw ref new Platform::COMException(hr);
 		}
 	}
 

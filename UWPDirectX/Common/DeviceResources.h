@@ -38,6 +38,7 @@ namespace DX
 		D3D12_VIEWPORT				GetScreenViewport() const			{ return m_screenViewport; }
 		DirectX::XMFLOAT4X4			GetOrientationTransform3D() const	{ return m_orientationTransform3D; }
 		UINT						GetCurrentFrameIndex() const		{ return m_currentFrame; }
+		Platform::Agile<Windows::UI::Core::CoreWindow> GetWindow() const { return m_window; }
 
 		CD3DX12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView() const
 		{

@@ -2,6 +2,7 @@
 #include "Sample3DSceneRenderer.h"
 
 #include "..\Common\DirectXHelper.h"
+#include "../KeyboardHandler.h"
 #include <ppltasks.h>
 #include <synchapi.h>
 
@@ -11,6 +12,7 @@ using namespace Concurrency;
 using namespace DirectX;
 using namespace Microsoft::WRL;
 using namespace Windows::Foundation;
+using namespace Windows::UI::Core;
 using namespace Windows::Storage;
 
 // Indices into the application state map.
@@ -23,11 +25,16 @@ Sample3DSceneRenderer::Sample3DSceneRenderer(const std::shared_ptr<DX::DeviceRes
 	m_radiansPerSecond(XM_PIDIV4),	// rotate 45 degrees per second
 	m_angle(0),
 	m_tracking(false),
+	m_rotating(true),
+	m_rotation(),
 	m_mappedConstantBuffer(nullptr),
 	m_deviceResources(deviceResources)
 {
 	LoadState();
 	ZeroMemory(&m_constantBufferData, sizeof(m_constantBufferData));
+	KeyboardHandler::SetRenderer(this);
+
+	m_deviceResources->GetWindow()->KeyDown += ref new Windows::Foundation::TypedEventHandler<Windows::UI::Core::CoreWindow^, Windows::UI::Core::KeyEventArgs^>(&KeyboardHandler::OnKeyDown);
 
 	CreateDeviceDependentResources();
 	CreateWindowSizeDependentResources();
@@ -65,17 +72,17 @@ void Sample3DSceneRenderer::CreateDeviceDependentResources()
 		ComPtr<ID3DBlob> pError;
 		DX::ThrowIfFailed(D3D12SerializeRootSignature(&descRootSignature, D3D_ROOT_SIGNATURE_VERSION_1, pSignature.GetAddressOf(), pError.GetAddressOf()));
 		DX::ThrowIfFailed(d3dDevice->CreateRootSignature(0, pSignature->GetBufferPointer(), pSignature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
-        NAME_D3D12_OBJECT(m_rootSignature);
+		NAME_D3D12_OBJECT(m_rootSignature);
 	}
 
 	// Load shaders asynchronously.
-	auto createVSTask = DX::ReadDataAsync(L"SampleVertexShader.cso").then([this](std::vector<byte>& fileData) {
+	auto createVSTask = DX::ReadDataAsync(L"SampleVertexShader.cso").then([this](std::vector<byte> & fileData) {
 		m_vertexShader = fileData;
-	});
+		});
 
-	auto createPSTask = DX::ReadDataAsync(L"SamplePixelShader.cso").then([this](std::vector<byte>& fileData) {
+	auto createPSTask = DX::ReadDataAsync(L"SamplePixelShader.cso").then([this](std::vector<byte> & fileData) {
 		m_pixelShader = fileData;
-	});
+		});
 
 	// Create the pipeline state once the shaders are loaded.
 	auto createPipelineStateTask = (createPSTask && createVSTask).then([this]() {
@@ -89,8 +96,8 @@ void Sample3DSceneRenderer::CreateDeviceDependentResources()
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC state = {};
 		state.InputLayout = { inputLayout, _countof(inputLayout) };
 		state.pRootSignature = m_rootSignature.Get();
-        state.VS = CD3DX12_SHADER_BYTECODE(&m_vertexShader[0], m_vertexShader.size());
-        state.PS = CD3DX12_SHADER_BYTECODE(&m_pixelShader[0], m_pixelShader.size());
+		state.VS = CD3DX12_SHADER_BYTECODE(&m_vertexShader[0], m_vertexShader.size());
+		state.PS = CD3DX12_SHADER_BYTECODE(&m_pixelShader[0], m_pixelShader.size());
 		state.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 		state.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 		state.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
@@ -106,7 +113,7 @@ void Sample3DSceneRenderer::CreateDeviceDependentResources()
 		// Shader data can be deleted once the pipeline state is created.
 		m_vertexShader.clear();
 		m_pixelShader.clear();
-	});
+		});
 
 	// Create and upload cube geometry resources to the GPU.
 	auto createAssetsTask = createPipelineStateTask.then([this]() {
@@ -114,7 +121,7 @@ void Sample3DSceneRenderer::CreateDeviceDependentResources()
 
 		// Create a command list.
 		DX::ThrowIfFailed(d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_deviceResources->GetCommandAllocator(), m_pipelineState.Get(), IID_PPV_ARGS(&m_commandList)));
-        NAME_D3D12_OBJECT(m_commandList);
+		NAME_D3D12_OBJECT(m_commandList);
 
 		// Cube vertices. Each vertex has a position and a color.
 		VertexPositionColor cubeVertices[] =
@@ -154,7 +161,7 @@ void Sample3DSceneRenderer::CreateDeviceDependentResources()
 			nullptr,
 			IID_PPV_ARGS(&vertexBufferUpload)));
 
-        NAME_D3D12_OBJECT(m_vertexBuffer);
+		NAME_D3D12_OBJECT(m_vertexBuffer);
 
 		// Upload the vertex buffer to the GPU.
 		{
@@ -242,7 +249,7 @@ void Sample3DSceneRenderer::CreateDeviceDependentResources()
 			heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 			DX::ThrowIfFailed(d3dDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_cbvHeap)));
 
-            NAME_D3D12_OBJECT(m_cbvHeap);
+			NAME_D3D12_OBJECT(m_cbvHeap);
 		}
 
 		CD3DX12_RESOURCE_DESC constantBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(DX::c_frameCount * c_alignedConstantBufferSize);
@@ -254,7 +261,7 @@ void Sample3DSceneRenderer::CreateDeviceDependentResources()
 			nullptr,
 			IID_PPV_ARGS(&m_constantBuffer)));
 
-        NAME_D3D12_OBJECT(m_constantBuffer);
+		NAME_D3D12_OBJECT(m_constantBuffer);
 
 		// Create constant buffer views to access the upload buffer.
 		D3D12_GPU_VIRTUAL_ADDRESS cbvGpuAddress = m_constantBuffer->GetGPUVirtualAddress();
@@ -294,11 +301,11 @@ void Sample3DSceneRenderer::CreateDeviceDependentResources()
 
 		// Wait for the command list to finish executing; the vertex/index buffers need to be uploaded to the GPU before the upload resources go out of scope.
 		m_deviceResources->WaitForGpu();
-	});
+		});
 
 	createAssetsTask.then([this]() {
 		m_loadingComplete = true;
-	});
+		});
 }
 
 // Initializes view parameters when the window size changes.
@@ -309,7 +316,7 @@ void Sample3DSceneRenderer::CreateWindowSizeDependentResources()
 	float fovAngleY = 70.0f * XM_PI / 180.0f;
 
 	D3D12_VIEWPORT viewport = m_deviceResources->GetScreenViewport();
-	m_scissorRect = { 0, 0, static_cast<LONG>(viewport.Width), static_cast<LONG>(viewport.Height)};
+	m_scissorRect = { 0, 0, static_cast<LONG>(viewport.Width), static_cast<LONG>(viewport.Height) };
 
 	// This is a simple example of change that can be made when the app is in
 	// portrait or snapped view.
@@ -330,7 +337,7 @@ void Sample3DSceneRenderer::CreateWindowSizeDependentResources()
 		aspectRatio,
 		0.01f,
 		100.0f
-		);
+	);
 
 	XMFLOAT4X4 orientation = m_deviceResources->GetOrientationTransform3D();
 	XMMATRIX orientationMatrix = XMLoadFloat4x4(&orientation);
@@ -338,7 +345,7 @@ void Sample3DSceneRenderer::CreateWindowSizeDependentResources()
 	XMStoreFloat4x4(
 		&m_constantBufferData.projection,
 		XMMatrixTranspose(perspectiveMatrix * orientationMatrix)
-		);
+	);
 
 	// Eye is at (0,0.7,1.5), looking at point (0,-0.1,0) with the up-vector along the y-axis.
 	static const XMVECTORF32 eye = { 0.0f, 0.7f, 1.5f, 0.0f };
@@ -348,17 +355,42 @@ void Sample3DSceneRenderer::CreateWindowSizeDependentResources()
 	XMStoreFloat4x4(&m_constantBufferData.view, XMMatrixTranspose(XMMatrixLookAtRH(eye, at, up)));
 }
 
+
+using namespace Windows::UI::Core;
+using namespace Windows::System;
+using namespace DirectX::SimpleMath;
+
 // Called once per frame, rotates the cube and calculates the model and view matrices.
 void Sample3DSceneRenderer::Update(DX::StepTimer const& timer)
 {
 	if (m_loadingComplete)
 	{
-		if (!m_tracking)
+		if (!m_tracking && m_rotating)
 		{
-			// Rotate the cube a small amount.
-			m_angle += static_cast<float>(timer.GetElapsedSeconds()) * m_radiansPerSecond;
+			float angle = static_cast<float>(timer.GetElapsedSeconds()) * m_radiansPerSecond;
 
-			Rotate(m_angle);
+			if (KeyboardHandler::IsKeyPressed(VirtualKey::Up))
+			{
+				m_rotation = Quaternion::CreateFromAxisAngle(Vector3::UnitX, -angle) * m_rotation;
+			}
+
+			if (KeyboardHandler::IsKeyPressed(VirtualKey::Down))
+			{
+				m_rotation = Quaternion::CreateFromAxisAngle(Vector3::UnitX, angle) * m_rotation;
+			}
+
+			if (KeyboardHandler::IsKeyPressed(VirtualKey::Left))
+			{
+				m_rotation = Quaternion::CreateFromAxisAngle(Vector3::UnitY, -angle) * m_rotation;
+			}
+
+			if (KeyboardHandler::IsKeyPressed(VirtualKey::Right))
+			{
+				m_rotation = Quaternion::CreateFromAxisAngle(Vector3::UnitY, angle) * m_rotation;
+			}
+
+			// Rotate the cube a small amount.
+			Rotate(m_rotation);
 		}
 
 		// Update the constant buffer resource.
@@ -401,11 +433,11 @@ void Sample3DSceneRenderer::LoadState()
 	}
 }
 
-// Rotate the 3D cube model a set amount of radians.
-void Sample3DSceneRenderer::Rotate(float radians)
+using namespace DirectX::SimpleMath;
+
+void Sample3DSceneRenderer::Rotate(Quaternion rotation)
 {
-	// Prepare to pass the updated model matrix to the shader.
-	XMStoreFloat4x4(&m_constantBufferData.model, XMMatrixTranspose(XMMatrixRotationY(radians)));
+	XMStoreFloat4x4(&m_constantBufferData.model, XMMatrixTranspose(XMMatrixRotationQuaternion(rotation)));
 }
 
 void Sample3DSceneRenderer::StartTracking()
@@ -419,7 +451,7 @@ void Sample3DSceneRenderer::TrackingUpdate(float positionX)
 	if (m_tracking)
 	{
 		float radians = XM_2PI * 2.0f * positionX / m_deviceResources->GetOutputSize().Width;
-		Rotate(radians);
+		Rotate(Quaternion::CreateFromAxisAngle(Vector3::UnitY, radians));
 	}
 }
 

@@ -1,14 +1,19 @@
 ﻿#pragma once
 
+#include <SimpleMath.h>
 #include "..\Common\DeviceResources.h"
 #include "ShaderStructures.h"
 #include "..\Common\StepTimer.h"
+
+ref class KeyboardHandler;
 
 namespace UWPDirectX
 {
 	// This sample renderer instantiates a basic rendering pipeline.
 	class Sample3DSceneRenderer
 	{
+		friend ref class KeyboardHandler;
+
 	public:
 		Sample3DSceneRenderer(const std::shared_ptr<DX::DeviceResources>& deviceResources);
 		~Sample3DSceneRenderer();
@@ -21,11 +26,12 @@ namespace UWPDirectX
 		void StartTracking();
 		void TrackingUpdate(float positionX);
 		void StopTracking();
-		bool IsTracking() { return m_tracking; }
+		bool IsTracking()           { return m_tracking; }
+		void ToggleTracking()		{ m_tracking = !m_tracking; }
 
 	private:
 		void LoadState();
-		void Rotate(float radians);
+		void Rotate(DirectX::SimpleMath::Quaternion rotation);
 
 	private:
 		// Constant buffers must be 256-byte aligned.
@@ -33,6 +39,7 @@ namespace UWPDirectX
 
 		// Cached pointer to device resources.
 		std::shared_ptr<DX::DeviceResources> m_deviceResources;
+		KeyboardHandler^ m_keyboardHandler;
 
 		// Direct3D resources for cube geometry.
 		Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>	m_commandList;
@@ -56,6 +63,7 @@ namespace UWPDirectX
 		float	m_radiansPerSecond;
 		float	m_angle;
 		bool	m_tracking;
+		bool    m_rotating;
+		DirectX::SimpleMath::Quaternion m_rotation;
 	};
 }
-

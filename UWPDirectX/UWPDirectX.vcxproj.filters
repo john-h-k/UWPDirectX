@@ -63,4 +63,23 @@
       <Filter>Assets</Filter>
     </Image>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="App.cpp" />
+    <ClCompile Include="UWPDirectXMain.cpp" />
+    <ClCompile Include="pch.cpp" />
+    <ClCompile Include="KeyboardHandler.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="App.h" />
+    <ClInclude Include="UWPDirectXMain.h" />
+    <ClInclude Include="pch.h" />
+    <ClInclude Include="KeyboardHandler.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <AppxManifest Include="Package.appxmanifest" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="UWPDirectX_TemporaryKey.pfx" />
+    <None Include="packages.config" />
+  </ItemGroup>
 </Project>
